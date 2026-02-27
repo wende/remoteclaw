@@ -18,9 +18,11 @@
     "refresh-catalog": "node scripts/generate-catalog.cjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.0"
+    "@modelcontextprotocol/sdk": "^1.25.0",
+    "express": "^5.2.1"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^20.11.0",
     "jiti": "^2.6.1",
     "tsup": "^8.0.0",

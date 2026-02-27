@@ -31,6 +31,28 @@
       "tlsKey": {
         "type": "string",
         "description": "Path to TLS private key PEM file (auto-detects certs/ dir if omitted)"
+      },
+      "authEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable OAuth 2.1 authentication for MCP endpoints"
+      },
+      "clientId": {
+        "type": "string",
+        "description": "OAuth client ID for pre-configured client"
+      },
+      "clientSecret": {
+        "type": "string",
+        "description": "OAuth client secret for pre-configured client"
+      },
+      "issuerUrl": {
+        "type": "string",
+        "description": "Override the OAuth issuer URL (e.g. for reverse proxy)"
+      },
+      "corsOrigins": {
+        "type": "string",
+        "default": "*",
+        "description": "Comma-separated CORS origins, or '*' for all, or 'none' to disable"
       }
     },
     "additionalProperties": false
