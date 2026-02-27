@@ -1,0 +1,24 @@
+{
+  "id": "remoteclaw",
+  "name": "RemoteClaw",
+  "description": "MCP server exposing OpenClaw tools to Claude Desktop/Claude.ai",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "transport": {
+        "type": "string",
+        "enum": ["stdio", "sse"],
+        "default": "sse"
+      },
+      "port": {
+        "type": "number",
+        "default": 3100
+      },
+      "auth": {
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "additionalProperties": false
+  }
+}
