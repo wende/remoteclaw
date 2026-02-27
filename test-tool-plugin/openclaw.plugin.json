@@ -1,0 +1,10 @@
+{
+  "id": "test-tool",
+  "name": "Test Tool Plugin",
+  "description": "Simple echo tool for testing custom tool registration",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

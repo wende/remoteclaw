@@ -4,6 +4,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createRemoteClawServer } from '../mcp-server.js';
 import type { AgentTool } from '../types.js';
 import { ToolInvoker } from '../tool-invoker.js';
+import { NativeToolHandler, nativeToolDefinitions } from '../native-tools.js';
+import { OpenClawClient } from '../openclaw-client.js';
+import { TaskManager } from '../task-manager.js';
 
 function makeMockTools(): AgentTool[] {
   return [
@@ -157,16 +160,19 @@ describe('MCP Server Integration', () => {
     expect(result.isError).toBe(true);
   });
 
-  it('throws on call to unknown tool name', async () => {
-    const fetchSpy = vi.fn();
+  it('forwards unknown tool names to gateway (no local validation)', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({ ok: false, error: 'Tool not available: nonexistent_tool' })),
+    });
+
     const { client } = await setupClientServer(makeMockTools(), fetchSpy);
+    const result = await client.callTool({ name: 'nonexistent_tool', arguments: {} });
 
-    await expect(
-      client.callTool({ name: 'nonexistent_tool', arguments: {} })
-    ).rejects.toThrow();
-
-    // fetch should not have been called
-    expect(fetchSpy).not.toHaveBeenCalled();
+    // Gateway is the source of truth — call goes through and returns error from gateway
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(result.isError).toBe(true);
   });
 
   it('handles tool with empty parameters schema', async () => {
@@ -200,6 +206,70 @@ describe('MCP Server Integration', () => {
 
     expect(serverInfo?.name).toBe('remoteclaw');
     expect(serverInfo?.version).toBeDefined();
+  });
+
+  it('includes native tools alongside catalog tools when nativeHandler is provided', async () => {
+    const client = {
+      chat: vi.fn().mockResolvedValue({ response: 'hi from openclaw' }),
+      health: vi.fn().mockResolvedValue({ status: 'ok' }),
+    } as unknown as OpenClawClient;
+    const nativeHandler = new NativeToolHandler(client, new TaskManager());
+
+    const invoker = new ToolInvoker('http://localhost:18789', 'test-token');
+    const server = createRemoteClawServer({
+      tools: makeMockTools(),
+      invoker,
+      nativeHandler,
+      extraTools: nativeToolDefinitions,
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const mcpClient = new Client({ name: 'test-client', version: '1.0.0' });
+    await server.connect(serverTransport);
+    await mcpClient.connect(clientTransport);
+
+    const { tools } = await mcpClient.listTools();
+    const names = tools.map((t) => t.name);
+
+    // 3 catalog tools + 6 native tools = 9
+    expect(tools).toHaveLength(9);
+    expect(names).toContain('web_search');
+    expect(names).toContain('openclaw_chat');
+    expect(names).toContain('openclaw_status');
+    expect(names).toContain('openclaw_chat_async');
+    expect(names).toContain('openclaw_task_list');
+  });
+
+  it('routes openclaw_chat to native handler, not tool invoker', async () => {
+    const chatMock = vi.fn().mockResolvedValue({ response: 'native response' });
+    const client = { chat: chatMock, health: vi.fn() } as unknown as OpenClawClient;
+    const nativeHandler = new NativeToolHandler(client, new TaskManager());
+
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const invoker = new ToolInvoker('http://localhost:18789', 'test-token');
+    const server = createRemoteClawServer({
+      tools: makeMockTools(),
+      invoker,
+      nativeHandler,
+      extraTools: nativeToolDefinitions,
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const mcpClient = new Client({ name: 'test-client', version: '1.0.0' });
+    await server.connect(serverTransport);
+    await mcpClient.connect(clientTransport);
+
+    const result = await mcpClient.callTool({
+      name: 'openclaw_chat',
+      arguments: { message: 'hello' },
+    });
+
+    expect(result.content).toEqual([{ type: 'text', text: 'native response' }]);
+    expect(chatMock).toHaveBeenCalledWith('hello', undefined);
+    // fetch should NOT have been called — native tools bypass /tools/invoke
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('dynamic tool list: supports function that returns tools', async () => {

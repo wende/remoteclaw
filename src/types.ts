@@ -52,11 +52,21 @@ export interface McpTool {
 // Plugin API interface (subset of OpenClawPluginApi)
 export interface PluginApi {
   registerService(service: PluginService): void;
+  registerHttpRoute?(params: {
+    path: string;
+    handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void | Promise<void>;
+  }): void;
   config: Record<string, unknown>;
+  pluginConfig?: Record<string, unknown>;
+  runtime?: {
+    config: {
+      loadConfig: () => Record<string, unknown>;
+    };
+  };
 }
 
 export interface PluginService {
-  name: string;
-  start(): Promise<void>;
-  stop(): Promise<void>;
+  id: string;
+  start(ctx?: unknown): void | Promise<void>;
+  stop?(ctx?: unknown): void | Promise<void>;
 }

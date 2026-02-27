@@ -5,18 +5,32 @@
   "configSchema": {
     "type": "object",
     "properties": {
-      "transport": {
+      "gatewayUrl": {
         "type": "string",
-        "enum": ["stdio", "sse"],
-        "default": "sse"
+        "default": "http://localhost:18789",
+        "description": "URL of the OpenClaw gateway"
+      },
+      "gatewayToken": {
+        "type": "string",
+        "description": "Bearer token for gateway authentication"
+      },
+      "sessionKey": {
+        "type": "string",
+        "default": "main",
+        "description": "Session key for tool invocations"
       },
       "port": {
         "type": "number",
-        "default": 3100
+        "default": 3100,
+        "description": "Port for the MCP HTTP server"
       },
-      "auth": {
-        "type": "boolean",
-        "default": false
+      "tlsCert": {
+        "type": "string",
+        "description": "Path to TLS certificate PEM file (auto-detects certs/ dir if omitted)"
+      },
+      "tlsKey": {
+        "type": "string",
+        "description": "Path to TLS private key PEM file (auto-detects certs/ dir if omitted)"
       }
     },
     "additionalProperties": false
