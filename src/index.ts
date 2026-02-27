@@ -200,7 +200,11 @@ export function register(api: PluginApi) {
       nativeHandler = new NativeToolHandler(openclawClient, taskMgr);
 
       // --- Express app (replaces raw handler) ---
-      const app = createMcpExpressApp({ host: '127.0.0.1' });
+      const allowedHosts = ['127.0.0.1', 'localhost', '::1'];
+      if (issuerUrl) {
+        try { allowedHosts.push(new URL(issuerUrl).hostname); } catch {}
+      }
+      const app = createMcpExpressApp({ host: '127.0.0.1', allowedHosts });
 
       // --- CORS middleware (before auth so OPTIONS preflight works) ---
       const corsConfig = parseCorsOrigins(corsOrigins);

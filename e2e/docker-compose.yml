@@ -1,0 +1,11 @@
+services:
+  e2e:
+    build: .
+    container_name: remoteclaw-e2e
+    stdin_open: true
+    tty: true
+    volumes:
+      # Mount remoteclaw source (read-write so agent can npm install / build)
+      - ..:/home/dev/remoteclaw
+      # Shadow host's certs/ dir so stale TLS certs don't leak into the container
+      - /home/dev/remoteclaw/certs

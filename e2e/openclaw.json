@@ -1,0 +1,11 @@
+{
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "e2e-test-token-not-for-production"
+    }
+  }
+}
