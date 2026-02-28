@@ -109,9 +109,9 @@ export class OpenClawClient {
       });
 
       if (response.status >= 200 && response.status < 500) {
-        return { status: 'ok', message: `Gateway responding (HTTP ${response.status})` };
+        return { status: 'ok', message: `Gateway is reachable and responding. HTTP ${response.status} is expected for the health-check probe.` };
       }
-      return { status: 'error', message: `Gateway error (HTTP ${response.status})` };
+      return { status: 'error', message: `Gateway returned HTTP ${response.status} (server error)` };
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         throw new Error(`Request to OpenClaw timed out after ${this.timeoutMs}ms`);

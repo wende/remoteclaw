@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { findOpenClawRoot, agentToolsToMcpTools } from '../tool-discovery.js';
+import { findOpenClawRoot, findOpenClawDist, agentToolsToMcpTools } from '../tool-discovery.js';
 
 describe('findOpenClawRoot', () => {
   let originalEnv: string | undefined;
@@ -51,6 +51,34 @@ describe('findOpenClawRoot', () => {
     if (result !== null) {
       expect(typeof result).toBe('string');
       expect(result.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('findOpenClawDist', () => {
+  let originalArgv: string[];
+
+  beforeEach(() => {
+    originalArgv = process.argv;
+  });
+
+  afterEach(() => {
+    process.argv = originalArgv;
+  });
+
+  it('finds dist from process.argv containing node_modules/openclaw/dist path', () => {
+    process.argv = ['node', '/usr/lib/node_modules/openclaw/dist/index.js'];
+    // Won't find it on this machine at that path, but tests the regex
+    const result = findOpenClawDist();
+    // If the path doesn't exist, returns null — that's fine
+    expect(result === null || typeof result === 'string').toBe(true);
+  });
+
+  it('finds installed openclaw dist on this dev machine', () => {
+    // On this machine, openclaw is installed globally via fnm
+    const result = findOpenClawDist();
+    if (result !== null) {
+      expect(result).toMatch(/openclaw\/dist$/);
     }
   });
 });

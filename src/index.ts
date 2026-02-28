@@ -177,25 +177,31 @@ export function register(api: PluginApi) {
       const tls = loadTlsOptions(config);
       const proto = tls ? 'https' : 'http';
 
-      // --- Tool discovery (unchanged) ---
-      try {
-        tools = await discoverToolsDynamic({
-          pluginConfig: config,
-          loadConfig: api.runtime?.config?.loadConfig,
-        });
-        console.error(`[remoteclaw] Discovered ${tools.length} tools dynamically`);
-      } catch (err) {
-        console.error(`[remoteclaw] Dynamic discovery unavailable (${err}), using static catalog`);
-        tools = loadToolCatalog();
-        if (tools.length === 0) {
-          console.error('[remoteclaw] No tools found in catalog. Run: npm run refresh-catalog');
-        } else {
-          console.error(`[remoteclaw] Loaded ${tools.length} tools from catalog`);
-        }
-      }
-
+      // --- Create invoker early (needed for HTTP tool discovery) ---
       invoker = new ToolInvoker(gatewayUrl, gatewayToken, sessionKey);
       const openclawClient = new OpenClawClient(gatewayUrl, gatewayToken);
+
+      // --- Tool discovery: HTTP → dynamic import → static catalog ---
+      tools = await invoker.listTools();
+      if (tools.length > 0) {
+        console.error(`[remoteclaw] Discovered ${tools.length} tools from gateway`);
+      } else {
+        try {
+          tools = await discoverToolsDynamic({
+            pluginConfig: config,
+            loadConfig: api.runtime?.config?.loadConfig,
+          });
+          console.error(`[remoteclaw] Discovered ${tools.length} tools dynamically`);
+        } catch (err) {
+          console.error(`[remoteclaw] Dynamic discovery unavailable (${err}), using static catalog`);
+          tools = loadToolCatalog();
+          if (tools.length === 0) {
+            console.error('[remoteclaw] No tools found in catalog. Run: npm run refresh-catalog');
+          } else {
+            console.error(`[remoteclaw] Loaded ${tools.length} tools from catalog`);
+          }
+        }
+      }
       const taskMgr = new TaskManager();
       nativeHandler = new NativeToolHandler(openclawClient, taskMgr);
 

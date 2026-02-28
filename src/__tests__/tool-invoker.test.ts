@@ -132,6 +132,89 @@ describe('ToolInvoker', () => {
     await expect(invoker.invoke('read', {})).rejects.toThrow(/timed out/);
   });
 
+  describe('listTools()', () => {
+    it('returns tools from gateway GET /tools', async () => {
+      const tools = [
+        { name: 'read', description: 'Read a file', parameters: [] },
+        { name: 'write', description: 'Write a file', parameters: [] },
+      ];
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify(tools)),
+      });
+
+      const invoker = new ToolInvoker('http://localhost:18789');
+      const result = await invoker.listTools();
+
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const [url, options] = fetchSpy.mock.calls[0];
+      expect(url).toBe('http://localhost:18789/tools');
+      expect(options.method).toBe('GET');
+      expect(result).toEqual(tools);
+    });
+
+    it('handles { tools: [...] } wrapper format', async () => {
+      const tools = [{ name: 'exec', description: 'Execute', parameters: [] }];
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ tools })),
+      });
+
+      const invoker = new ToolInvoker('http://localhost:18789');
+      const result = await invoker.listTools();
+
+      expect(result).toEqual(tools);
+    });
+
+    it('returns empty array on 404', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+      });
+
+      const invoker = new ToolInvoker('http://localhost:18789');
+      const result = await invoker.listTools();
+
+      expect(result).toEqual([]);
+    });
+
+    it('returns empty array on network error', async () => {
+      fetchSpy.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const invoker = new ToolInvoker('http://localhost:18789');
+      const result = await invoker.listTools();
+
+      expect(result).toEqual([]);
+    });
+
+    it('includes auth header when token configured', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify([])),
+      });
+
+      const invoker = new ToolInvoker('http://localhost:18789', 'secret-token');
+      await invoker.listTools();
+
+      const [, options] = fetchSpy.mock.calls[0];
+      expect(options.headers['Authorization']).toBe('Bearer secret-token');
+    });
+
+    it('omits auth header when no token', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify([])),
+      });
+
+      const invoker = new ToolInvoker('http://localhost:18789');
+      await invoker.listTools();
+
+      const [, options] = fetchSpy.mock.calls[0];
+      expect(options.headers).not.toHaveProperty('Authorization');
+    });
+  });
+
   it('uses configurable gateway URL and session key', async () => {
     fetchSpy.mockResolvedValue({
       ok: true,

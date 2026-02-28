@@ -1,4 +1,4 @@
-import type { ToolInvokeResponse } from './types.js';
+import type { AgentTool, ToolInvokeResponse } from './types.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -18,6 +18,27 @@ export class ToolInvoker {
     this.token = token;
     this.sessionKey = sessionKey;
     this.timeoutMs = timeoutMs;
+  }
+
+  async listTools(): Promise<AgentTool[]> {
+    const url = `${this.baseUrl}/tools`;
+
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    try {
+      const response = await fetch(url, { method: 'GET', headers });
+      if (!response.ok) return [];
+
+      const data = JSON.parse(await response.text());
+      if (Array.isArray(data)) return data as AgentTool[];
+      if (data && Array.isArray(data.tools)) return data.tools as AgentTool[];
+      return [];
+    } catch {
+      return [];
+    }
   }
 
   async invoke(toolName: string, args: Record<string, unknown>): Promise<ToolInvokeResponse> {

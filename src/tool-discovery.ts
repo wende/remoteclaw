@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import type { AgentTool, McpTool } from './types.js';
@@ -72,39 +72,134 @@ export function findOpenClawRoot(pluginConfig: Record<string, unknown>): string 
 }
 
 /**
+ * Find the installed openclaw package's dist directory.
+ * Works on deployed machines where only the bundled dist exists.
+ */
+export function findOpenClawDist(): string | null {
+  // 1. Resolve from process.argv — gateway entry point is inside dist/
+  for (const arg of process.argv) {
+    const distMatch = arg.match(/^(.+?\/node_modules\/openclaw\/dist)\//);
+    if (distMatch && existsSync(distMatch[1])) return distMatch[1];
+  }
+
+  // 2. Walk up from process.argv[1] looking for node_modules/openclaw/dist
+  if (process.argv[1]) {
+    let dir = dirname(process.argv[1]);
+    for (let i = 0; i < 10; i++) {
+      const candidate = join(dir, 'node_modules', 'openclaw', 'dist');
+      if (existsSync(candidate)) return candidate;
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+
+  // 3. Well-known global install paths
+  const homeDir = process.env.HOME || process.env.USERPROFILE;
+  if (homeDir) {
+    // fnm
+    const fnmBase = join(homeDir, '.local', 'share', 'fnm', 'node-versions');
+    if (existsSync(fnmBase)) {
+      try {
+        for (const ver of readdirSync(fnmBase)) {
+          const candidate = join(fnmBase, ver, 'installation', 'lib', 'node_modules', 'openclaw', 'dist');
+          if (existsSync(candidate)) return candidate;
+        }
+      } catch {}
+    }
+    // nvm
+    const nvmBase = join(homeDir, '.nvm', 'versions', 'node');
+    if (existsSync(nvmBase)) {
+      try {
+        for (const ver of readdirSync(nvmBase)) {
+          const candidate = join(nvmBase, ver, 'lib', 'node_modules', 'openclaw', 'dist');
+          if (existsSync(candidate)) return candidate;
+        }
+      } catch {}
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find createOpenClawTools in bundled dist chunks.
+ * The bundler (tsdown) exports it with a mangled name; we scan for the chunk
+ * that re-exports it and identify the function by calling it with { config: {} }.
+ */
+async function importCreateOpenClawToolsFromDist(distDir: string): Promise<((...args: any[]) => any) | null> {
+  const files = readdirSync(distDir).filter(f => f.endsWith('.js'));
+  for (const file of files) {
+    const content = readFileSync(join(distDir, file), 'utf-8');
+    if (!content.includes('createOpenClawTools')) continue;
+
+    let mod: any;
+    try {
+      mod = await import(join(distDir, file));
+    } catch {
+      continue;
+    }
+
+    for (const [, val] of Object.entries(mod)) {
+      if (typeof val !== 'function') continue;
+      try {
+        const result = (val as any)({ config: {} });
+        if (Array.isArray(result) && result.length > 0 && result[0]?.name && result[0]?.execute) {
+          return val as any;
+        }
+      } catch {
+        // not this function
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Dynamically discover all tools by importing createOpenClawTools from the OpenClaw source.
  * This works because the RemoteClaw plugin runs inside the gateway process.
+ *
+ * Falls back to scanning bundled dist chunks when source tree isn't available
+ * (deployed machines with only the installed npm package).
  */
 export async function discoverToolsDynamic(opts: {
   pluginConfig: Record<string, unknown>;
   loadConfig?: () => Record<string, unknown>;
 }): Promise<AgentTool[]> {
+  let createOpenClawTools: ((...args: any[]) => any) | null = null;
+
+  // Strategy 1: import from source tree (dev machines)
   const root = findOpenClawRoot(opts.pluginConfig);
-  if (!root) {
-    throw new Error(
-      'Cannot find OpenClaw source root. Set openclawRoot in plugin config or OPENCLAW_ROOT env var.'
-    );
+  if (root) {
+    const modulePath = join(root, 'src', 'agents', 'openclaw-tools.js');
+    let mod: any;
+    try {
+      mod = await import(modulePath);
+    } catch {
+      mod = await import(modulePath.replace(/\.js$/, '.ts'));
+    }
+    createOpenClawTools = mod.createOpenClawTools ?? mod.default?.createOpenClawTools;
   }
 
-  // Dynamic import — works because we're in the gateway process and jiti handles resolution.
-  const modulePath = join(root, 'src', 'agents', 'openclaw-tools.js');
-  let mod: any;
-  try {
-    mod = await import(modulePath);
-  } catch {
-    mod = await import(modulePath.replace(/\.js$/, '.ts'));
+  // Strategy 2: scan installed dist chunks (deployed machines)
+  if (!createOpenClawTools) {
+    const distDir = findOpenClawDist();
+    if (distDir) {
+      createOpenClawTools = await importCreateOpenClawToolsFromDist(distDir);
+    }
   }
 
-  const createOpenClawTools = mod.createOpenClawTools ?? mod.default?.createOpenClawTools;
   if (typeof createOpenClawTools !== 'function') {
-    throw new Error(`createOpenClawTools not found in ${modulePath}`);
+    throw new Error(
+      'Cannot find createOpenClawTools. Set openclawRoot in plugin config, OPENCLAW_ROOT env var, or ensure openclaw is installed globally.'
+    );
   }
 
   // Use the runtime's loadConfig if available, otherwise import it from the source tree.
   let config: Record<string, unknown>;
   if (opts.loadConfig) {
     config = opts.loadConfig();
-  } else {
+  } else if (root) {
     const configModPath = join(root, 'src', 'config', 'config.js');
     let configMod: any;
     try {
@@ -113,6 +208,8 @@ export async function discoverToolsDynamic(opts: {
       configMod = await import(configModPath.replace(/\.js$/, '.ts'));
     }
     config = configMod.loadConfig();
+  } else {
+    throw new Error('No loadConfig available and no source tree found for config import');
   }
 
   const allTools = createOpenClawTools({ config });
