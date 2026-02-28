@@ -158,48 +158,37 @@ async function importCreateOpenClawToolsFromDist(distDir: string): Promise<((...
 /**
  * Dynamically discover all tools by importing createOpenClawTools from the OpenClaw source.
  * This works because the RemoteClaw plugin runs inside the gateway process.
- *
- * Falls back to scanning bundled dist chunks when source tree isn't available
- * (deployed machines with only the installed npm package).
  */
 export async function discoverToolsDynamic(opts: {
   pluginConfig: Record<string, unknown>;
   loadConfig?: () => Record<string, unknown>;
 }): Promise<AgentTool[]> {
-  let createOpenClawTools: ((...args: any[]) => any) | null = null;
-
-  // Strategy 1: import from source tree (dev machines)
   const root = findOpenClawRoot(opts.pluginConfig);
-  if (root) {
-    const modulePath = join(root, 'src', 'agents', 'openclaw-tools.js');
-    let mod: any;
-    try {
-      mod = await import(modulePath);
-    } catch {
-      mod = await import(modulePath.replace(/\.js$/, '.ts'));
-    }
-    createOpenClawTools = mod.createOpenClawTools ?? mod.default?.createOpenClawTools;
-  }
-
-  // Strategy 2: scan installed dist chunks (deployed machines)
-  if (!createOpenClawTools) {
-    const distDir = findOpenClawDist();
-    if (distDir) {
-      createOpenClawTools = await importCreateOpenClawToolsFromDist(distDir);
-    }
-  }
-
-  if (typeof createOpenClawTools !== 'function') {
+  if (!root) {
     throw new Error(
-      'Cannot find createOpenClawTools. Set openclawRoot in plugin config, OPENCLAW_ROOT env var, or ensure openclaw is installed globally.'
+      'Cannot find OpenClaw source root. Set openclawRoot in plugin config or OPENCLAW_ROOT env var.'
     );
+  }
+
+  // Dynamic import — works because we're in the gateway process and jiti handles resolution.
+  const modulePath = join(root, 'src', 'agents', 'openclaw-tools.js');
+  let mod: any;
+  try {
+    mod = await import(modulePath);
+  } catch {
+    mod = await import(modulePath.replace(/\.js$/, '.ts'));
+  }
+
+  const createOpenClawTools = mod.createOpenClawTools ?? mod.default?.createOpenClawTools;
+  if (typeof createOpenClawTools !== 'function') {
+    throw new Error(`createOpenClawTools not found in ${modulePath}`);
   }
 
   // Use the runtime's loadConfig if available, otherwise import it from the source tree.
   let config: Record<string, unknown>;
   if (opts.loadConfig) {
     config = opts.loadConfig();
-  } else if (root) {
+  } else {
     const configModPath = join(root, 'src', 'config', 'config.js');
     let configMod: any;
     try {
@@ -208,8 +197,6 @@ export async function discoverToolsDynamic(opts: {
       configMod = await import(configModPath.replace(/\.js$/, '.ts'));
     }
     config = configMod.loadConfig();
-  } else {
-    throw new Error('No loadConfig available and no source tree found for config import');
   }
 
   const allTools = createOpenClawTools({ config });
