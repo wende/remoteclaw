@@ -14,7 +14,7 @@ import { ToolInvoker } from './tool-invoker.js';
 import { OpenClawClient } from './openclaw-client.js';
 import { TaskManager } from './task-manager.js';
 import { NativeToolHandler, nativeToolDefinitions } from './native-tools.js';
-import { discoverToolsDynamic } from './tool-discovery.js';
+import { discoverToolsDynamic, discoverPluginToolsFromRegistry } from './tool-discovery.js';
 import { OpenClawAuthProvider, type AuthProviderConfig } from './auth/provider.js';
 import type { PluginApi, AgentTool } from './types.js';
 
@@ -23,7 +23,7 @@ export { ToolInvoker } from './tool-invoker.js';
 export { OpenClawClient } from './openclaw-client.js';
 export { TaskManager } from './task-manager.js';
 export { NativeToolHandler, nativeToolDefinitions } from './native-tools.js';
-export { agentToolsToMcpTools, findOpenClawRoot, discoverToolsDynamic } from './tool-discovery.js';
+export { agentToolsToMcpTools, findOpenClawRoot, discoverToolsDynamic, discoverPluginToolsFromRegistry } from './tool-discovery.js';
 export { mapToolResult, mapToolError, mapInvokeResponse } from './result-mapper.js';
 export type { AgentTool, McpTool, ToolInvokeResponse, McpToolResult } from './types.js';
 
@@ -195,10 +195,15 @@ export function register(api: PluginApi) {
         } catch (err) {
           console.error(`[remoteclaw] Dynamic discovery unavailable (${err}), using static catalog`);
           tools = loadToolCatalog();
-          if (tools.length === 0) {
-            console.error('[remoteclaw] No tools found in catalog. Run: npm run refresh-catalog');
-          } else {
-            console.error(`[remoteclaw] Loaded ${tools.length} tools from catalog`);
+          console.error(`[remoteclaw] Loaded ${tools.length} tools from static catalog`);
+
+          // Supplement with plugin tools from the gateway's active registry
+          const pluginTools = discoverPluginToolsFromRegistry({ config: api.config });
+          if (pluginTools.length > 0) {
+            const existingNames = new Set(tools.map(t => t.name));
+            const newTools = pluginTools.filter(t => !existingNames.has(t.name));
+            tools = [...tools, ...newTools];
+            console.error(`[remoteclaw] Added ${newTools.length} plugin tools from registry`);
           }
         }
       }

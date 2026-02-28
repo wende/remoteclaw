@@ -156,6 +156,46 @@ async function importCreateOpenClawToolsFromDist(distDir: string): Promise<((...
 }
 
 /**
+ * Discover plugin-registered tools from the gateway's active plugin registry.
+ * The gateway stores the registry on globalThis via Symbol.for("openclaw.pluginRegistryState").
+ * Since RemoteClaw runs in the same process, we read it directly — no imports needed.
+ */
+export function discoverPluginToolsFromRegistry(opts: {
+  config?: Record<string, unknown>;
+}): AgentTool[] {
+  const REGISTRY_STATE = Symbol.for('openclaw.pluginRegistryState');
+  const registryState = (globalThis as any)[REGISTRY_STATE] as
+    | { registry: { tools?: Array<{ factory: (ctx: any) => any; names?: string[]; pluginId?: string }> } | null }
+    | undefined;
+
+  const registry = registryState?.registry;
+  if (!registry || !Array.isArray(registry.tools) || registry.tools.length === 0) {
+    return [];
+  }
+
+  const tools: AgentTool[] = [];
+  for (const entry of registry.tools) {
+    try {
+      const result = entry.factory({ config: opts.config ?? {} });
+      const items = Array.isArray(result) ? result : [result];
+      for (const t of items) {
+        if (t && t.name) {
+          tools.push({
+            name: String(t.name),
+            description: String(t.description ?? ''),
+            parameters: t.parameters ?? { type: 'object' },
+          });
+        }
+      }
+    } catch {
+      // Factory failed — skip this plugin's tools
+    }
+  }
+
+  return tools;
+}
+
+/**
  * Dynamically discover all tools by importing createOpenClawTools from the OpenClaw source.
  * This works because the RemoteClaw plugin runs inside the gateway process.
  */

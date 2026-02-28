@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { findOpenClawRoot, findOpenClawDist, agentToolsToMcpTools } from '../tool-discovery.js';
+import { findOpenClawRoot, findOpenClawDist, agentToolsToMcpTools, discoverPluginToolsFromRegistry } from '../tool-discovery.js';
 
 describe('findOpenClawRoot', () => {
   let originalEnv: string | undefined;
@@ -80,6 +80,121 @@ describe('findOpenClawDist', () => {
     if (result !== null) {
       expect(result).toMatch(/openclaw\/dist$/);
     }
+  });
+});
+
+describe('discoverPluginToolsFromRegistry', () => {
+  const REGISTRY_STATE = Symbol.for('openclaw.pluginRegistryState');
+
+  afterEach(() => {
+    delete (globalThis as any)[REGISTRY_STATE];
+  });
+
+  it('returns empty array when no registry exists', () => {
+    delete (globalThis as any)[REGISTRY_STATE];
+    expect(discoverPluginToolsFromRegistry({})).toEqual([]);
+  });
+
+  it('returns empty array when registry has no tools', () => {
+    (globalThis as any)[REGISTRY_STATE] = {
+      registry: { tools: [] },
+      key: null,
+    };
+    expect(discoverPluginToolsFromRegistry({})).toEqual([]);
+  });
+
+  it('discovers tools from plugin factories', () => {
+    (globalThis as any)[REGISTRY_STATE] = {
+      registry: {
+        tools: [
+          {
+            pluginId: 'test-plugin',
+            names: ['model_usage'],
+            factory: () => ({
+              name: 'model_usage',
+              description: 'Track model usage',
+              parameters: { type: 'object', properties: { model: { type: 'string' } } },
+              execute: async () => ({ content: [] }),
+            }),
+          },
+        ],
+      },
+      key: null,
+    };
+
+    const tools = discoverPluginToolsFromRegistry({ config: {} });
+    expect(tools).toHaveLength(1);
+    expect(tools[0].name).toBe('model_usage');
+    expect(tools[0].description).toBe('Track model usage');
+    expect(tools[0].parameters.properties).toEqual({ model: { type: 'string' } });
+  });
+
+  it('handles factory returning an array of tools', () => {
+    (globalThis as any)[REGISTRY_STATE] = {
+      registry: {
+        tools: [
+          {
+            pluginId: 'multi-plugin',
+            names: ['tool_a', 'tool_b'],
+            factory: () => [
+              { name: 'tool_a', description: 'A', parameters: { type: 'object' } },
+              { name: 'tool_b', description: 'B', parameters: { type: 'object' } },
+            ],
+          },
+        ],
+      },
+      key: null,
+    };
+
+    const tools = discoverPluginToolsFromRegistry({});
+    expect(tools).toHaveLength(2);
+    expect(tools.map(t => t.name)).toEqual(['tool_a', 'tool_b']);
+  });
+
+  it('skips factories that throw', () => {
+    (globalThis as any)[REGISTRY_STATE] = {
+      registry: {
+        tools: [
+          {
+            pluginId: 'broken',
+            names: ['broken_tool'],
+            factory: () => { throw new Error('init failed'); },
+          },
+          {
+            pluginId: 'good',
+            names: ['good_tool'],
+            factory: () => ({ name: 'good_tool', description: 'Works', parameters: { type: 'object' } }),
+          },
+        ],
+      },
+      key: null,
+    };
+
+    const tools = discoverPluginToolsFromRegistry({});
+    expect(tools).toHaveLength(1);
+    expect(tools[0].name).toBe('good_tool');
+  });
+
+  it('passes config to factory', () => {
+    let receivedConfig: any;
+    (globalThis as any)[REGISTRY_STATE] = {
+      registry: {
+        tools: [
+          {
+            pluginId: 'config-reader',
+            names: ['cfg_tool'],
+            factory: (ctx: any) => {
+              receivedConfig = ctx.config;
+              return { name: 'cfg_tool', description: 'Reads config', parameters: { type: 'object' } };
+            },
+          },
+        ],
+      },
+      key: null,
+    };
+
+    discoverPluginToolsFromRegistry({ config: { myKey: 'myValue' } });
+    expect(receivedConfig).toEqual({ myKey: 'myValue' });
   });
 });
 
