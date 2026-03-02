@@ -139,11 +139,20 @@ export function register(api: PluginApi) {
   }
 
   function createSession(): Session {
+    // Extract tool executors for direct invocation (from dynamic discovery with execute methods)
+    const toolExecutors = new Map<string, (callId: string, args: Record<string, unknown>) => Promise<any>>();
+    for (const tool of tools) {
+      if (tool.execute && typeof tool.execute === 'function') {
+        toolExecutors.set(tool.name, tool.execute);
+      }
+    }
+
     const server = createRemoteClawServer({
       tools,
       invoker: invoker!,
       nativeHandler: nativeHandler!,
       extraTools: nativeToolDefinitions,
+      toolExecutors: toolExecutors.size > 0 ? toolExecutors : undefined,
     });
 
     const transport = new StreamableHTTPServerTransport({

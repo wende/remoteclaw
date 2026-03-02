@@ -12,6 +12,7 @@ export interface AgentTool {
   name: string;
   description: string;
   parameters: AgentToolParameter;
+  execute?: (callId: string, args: Record<string, unknown>) => Promise<AgentToolResult>;
 }
 
 export type AgentToolResultContent =

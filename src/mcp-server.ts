@@ -6,7 +6,7 @@ import {
 import { agentToolsToMcpTools } from './tool-discovery.js';
 import { mapInvokeResponse, mapToolError, truncateResult } from './result-mapper.js';
 import type { ToolInvoker } from './tool-invoker.js';
-import type { AgentTool, McpTool, McpToolResult } from './types.js';
+import type { AgentTool, AgentToolResult, McpTool, McpToolResult } from './types.js';
 import type { NativeToolHandler } from './native-tools.js';
 
 export interface CreateRemoteClawServerOptions {
@@ -14,6 +14,7 @@ export interface CreateRemoteClawServerOptions {
   invoker: ToolInvoker;
   nativeHandler?: NativeToolHandler;
   extraTools?: McpTool[];
+  toolExecutors?: Map<string, (callId: string, args: Record<string, unknown>) => Promise<AgentToolResult>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +120,7 @@ function postProcessConfigSchema(result: McpToolResult, path?: string): McpToolR
 // ---------------------------------------------------------------------------
 
 export function createRemoteClawServer(options: CreateRemoteClawServerOptions): Server {
-  const { tools, invoker, nativeHandler, extraTools } = options;
+  const { tools, invoker, nativeHandler, extraTools, toolExecutors } = options;
 
   const resolveTools = typeof tools === 'function' ? tools : () => tools;
 
@@ -141,6 +142,17 @@ export function createRemoteClawServer(options: CreateRemoteClawServerOptions): 
     // Native tools get handled directly (chat, status, async tasks)
     if (nativeHandler?.handles(name)) {
       return nativeHandler.handle(name, safeArgs) as any;
+    }
+
+    // Try direct execution first (for tools with execute methods from dynamic discovery)
+    const directExecutor = toolExecutors?.get(name);
+    if (directExecutor) {
+      try {
+        const result = await directExecutor(`direct-${Date.now()}`, safeArgs);
+        return truncateResult({ content: result.content, isError: false });
+      } catch (error) {
+        return mapToolError(error) as any;
+      }
     }
 
     // Gateway config.schema: extract our custom `path` param before proxying

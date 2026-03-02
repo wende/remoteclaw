@@ -245,5 +245,6 @@ export async function discoverToolsDynamic(opts: {
     name: String(t.name ?? ''),
     description: String(t.description ?? ''),
     parameters: t.parameters ?? { type: 'object' },
+    execute: typeof t.execute === 'function' ? t.execute : undefined,
   }));
 }
