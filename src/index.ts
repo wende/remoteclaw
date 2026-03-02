@@ -1,9 +1,10 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { execSync } from 'node:child_process';
 import type { Request, Response, NextFunction } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
@@ -14,6 +15,7 @@ import { ToolInvoker } from './tool-invoker.js';
 import { OpenClawClient } from './openclaw-client.js';
 import { TaskManager } from './task-manager.js';
 import { NativeToolHandler, nativeToolDefinitions } from './native-tools.js';
+import { SystemToolHandler, systemToolDefinitions } from './system-tools.js';
 import { discoverToolsDynamic, discoverPluginToolsFromRegistry } from './tool-discovery.js';
 import { OpenClawAuthProvider, type AuthProviderConfig } from './auth/provider.js';
 import type { PluginApi, AgentTool } from './types.js';
@@ -46,6 +48,48 @@ function resolvePluginDir(): string {
   return typeof __dirname !== 'undefined'
     ? resolve(__dirname, '..')
     : resolve(dirname(fileURLToPath(import.meta.url)), '..');
+}
+
+function needsRebuild(): boolean {
+  const pluginDir = resolvePluginDir();
+  const srcDir = join(pluginDir, 'src');
+  const distDir = join(pluginDir, 'dist');
+  const distIndex = join(distDir, 'index.js');
+
+  // If dist doesn't exist, we need to build
+  if (!existsSync(distIndex)) {
+    return true;
+  }
+
+  try {
+    const distStat = statSync(distIndex);
+    const srcStat = statSync(srcDir);
+    // If src is newer than dist, rebuild
+    return srcStat.mtime > distStat.mtime;
+  } catch {
+    // If we can't stat, assume rebuild is needed
+    return true;
+  }
+}
+
+function autoBuild(): void {
+  if (!needsRebuild()) {
+    return;
+  }
+
+  const pluginDir = resolvePluginDir();
+  console.error('[remoteclaw] Source files changed, rebuilding...');
+  try {
+    execSync('npm run build', {
+      cwd: pluginDir,
+      stdio: 'inherit',
+      timeout: 60000,
+    });
+    console.error('[remoteclaw] Build complete');
+  } catch (err) {
+    console.error(`[remoteclaw] Build failed: ${err}`);
+    throw err;
+  }
 }
 
 function loadTlsOptions(config: Record<string, unknown>): { cert: Buffer; key: Buffer } | null {
@@ -100,6 +144,14 @@ interface Session {
 }
 
 export function register(api: PluginApi) {
+  // Auto-rebuild if source files are newer than dist
+  try {
+    autoBuild();
+  } catch (err) {
+    console.error('[remoteclaw] Aborting plugin start due to build failure');
+    throw err;
+  }
+
   const config = api.pluginConfig ?? {};
   const gatewayUrl = (config.gatewayUrl as string) ?? 'http://localhost:18789';
   const gatewayToken = config.gatewayToken as string | undefined;
@@ -115,6 +167,7 @@ export function register(api: PluginApi) {
 
   let httpServer: ReturnType<typeof createHttpServer> | null = null;
   let nativeHandler: NativeToolHandler | null = null;
+  let systemToolHandler: SystemToolHandler | null = null;
   let authProvider: OpenClawAuthProvider | null = null;
   const sessions = new Map<string, Session>();
 
@@ -151,7 +204,7 @@ export function register(api: PluginApi) {
       tools,
       invoker: invoker!,
       nativeHandler: nativeHandler!,
-      extraTools: nativeToolDefinitions,
+      extraTools: [...nativeToolDefinitions, ...systemToolDefinitions],
       toolExecutors: toolExecutors.size > 0 ? toolExecutors : undefined,
     });
 
@@ -217,7 +270,8 @@ export function register(api: PluginApi) {
         }
       }
       const taskMgr = new TaskManager();
-      nativeHandler = new NativeToolHandler(openclawClient, taskMgr);
+      systemToolHandler = new SystemToolHandler();
+      nativeHandler = new NativeToolHandler(openclawClient, taskMgr, systemToolHandler);
 
       // --- Express app (replaces raw handler) ---
       const allowedHosts = ['127.0.0.1', 'localhost', '::1'];
@@ -425,6 +479,7 @@ export function register(api: PluginApi) {
         nativeHandler.stop();
         nativeHandler = null;
       }
+      systemToolHandler = null;
       // Close all sessions
       for (const [sid, session] of sessions) {
         await session.server.close();

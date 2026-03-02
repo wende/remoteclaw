@@ -8,6 +8,7 @@
 import type { McpTool, McpToolResult } from './types.js';
 import type { OpenClawClient } from './openclaw-client.js';
 import { TaskManager, type Task, type TaskStatus } from './task-manager.js';
+import type { SystemToolHandler } from './system-tools.js';
 
 // ---------------------------------------------------------------------------
 // Tool definitions
@@ -125,18 +126,27 @@ export class NativeToolHandler {
   private taskManager: TaskManager;
   private processorRunning = false;
   private nativeNames: Set<string>;
+  private systemHandler?: SystemToolHandler;
 
-  constructor(client: OpenClawClient, taskManager: TaskManager) {
+  constructor(client: OpenClawClient, taskManager: TaskManager, systemHandler?: SystemToolHandler) {
     this.client = client;
     this.taskManager = taskManager;
+    this.systemHandler = systemHandler;
     this.nativeNames = new Set(nativeToolDefinitions.map((t) => t.name));
   }
 
   handles(toolName: string): boolean {
-    return this.nativeNames.has(toolName);
+    if (this.nativeNames.has(toolName)) return true;
+    if (this.systemHandler?.handles(toolName)) return true;
+    return false;
   }
 
   async handle(toolName: string, args: Record<string, unknown>): Promise<McpToolResult> {
+    // Try system tools first
+    if (this.systemHandler?.handles(toolName)) {
+      return this.systemHandler.handle(toolName, args);
+    }
+
     switch (toolName) {
       case 'openclaw_chat':
         return this.handleChat(args);
