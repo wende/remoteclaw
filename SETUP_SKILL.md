@@ -34,12 +34,12 @@ You are setting up the **RemoteClaw** OpenClaw plugin from scratch. RemoteClaw e
 
 Ask the user which client(s) they plan to connect to RemoteClaw:
 
-- **Claude Code** (CLI) — runs locally, connects over localhost
+- **Claude Code** (CLI) — can connect locally (localhost) or remotely (tunnel + OAuth)
 - **Claude Desktop** (app) — runs locally, connects over localhost
 - **Claude.ai** (browser) — runs remotely, requires a public HTTPS URL + OAuth
 - **Programmatic / other** — custom Node.js/Python client
 
-*Why this matters:* Claude.ai requires remote access (tunnel + OAuth + TLS), while local clients can use plain HTTP. This is the single biggest factor in setup complexity.
+*Why this matters:* Remote clients (Claude.ai, remote Claude Code) require tunnel + OAuth + TLS, while local clients can use plain HTTP. This is the single biggest factor in setup complexity.
 
 ### Question 2: HTTP or HTTPS?
 
@@ -515,7 +515,27 @@ Expected: 25+ tools (19 discovered + 6 native: `openclaw_chat`, `openclaw_status
 
 ### Claude Code
 
-Create `.mcp.json` in your project directory (or `~/.claude/.mcp.json` for global):
+#### Option A: CLI (recommended)
+
+The `claude mcp add` command handles config writing and securely stores secrets in the system keychain.
+
+**Local HTTP:**
+```bash
+claude mcp add --transport http --scope user remoteclaw http://127.0.0.1:3100/mcp
+```
+
+**Local HTTPS:**
+```bash
+claude mcp add --transport http --scope user remoteclaw https://127.0.0.1:3100/mcp
+```
+
+Scope options: `--scope local` (project `.mcp.json`), `--scope user` (global `~/.claude.json`), `--scope project` (shared `.claude/mcp.json`).
+
+For remote access with OAuth, see [Connect from Claude Code (remote)](#connect-from-claude-code-remote) in Step 8.
+
+#### Option B: Manual JSON
+
+Create `.mcp.json` in your project directory, or edit `~/.claude.json` for global config:
 
 **HTTPS:**
 ```json
@@ -805,6 +825,45 @@ curl -X POST https://your-tunnel-url.example.com/mcp \
 
 Should return **401 Unauthorized**.
 
+#### Connect from Claude Code (remote)
+
+Use the `claude mcp add` CLI with OAuth flags. The client secret is stored securely in the system keychain (macOS) or credentials file (Linux).
+
+```bash
+MCP_CLIENT_SECRET="<actual-client-secret>" \
+claude mcp add \
+  --transport http \
+  --scope user \
+  --client-id "<actual-client-id>" \
+  --client-secret \
+  remoteclaw \
+  "https://<actual-tunnel-url>/mcp"
+```
+
+This writes the config to `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "remoteclaw": {
+      "type": "http",
+      "url": "https://<actual-tunnel-url>/mcp",
+      "oauth": {
+        "clientId": "<actual-client-id>"
+      }
+    }
+  }
+}
+```
+
+After adding, authenticate in Claude Code:
+
+```
+/mcp
+```
+
+Select "Authenticate" for `remoteclaw`. Claude Code handles the full OAuth flow (browser redirect → auth code → token exchange) automatically.
+
 #### Connect from Claude.ai
 
 In Claude.ai's MCP server configuration, add the server URL:
@@ -973,26 +1032,56 @@ The gateway loads the plugin from the `src/` entry point (via jiti), but the bui
 
 ### Remote access (tunnel + OAuth)
 
-If the user set up remote access with a tunnel, print this config using the **actual tunnel URL** (not a placeholder):
+If the user set up remote access with a tunnel, print the ready-to-use config using the **actual values** (not placeholders).
+
+#### For Claude Code (recommended: CLI)
 
 ```
-To connect to your RemoteClaw server, add this to your MCP client config:
+To connect Claude Code to your RemoteClaw server, run:
+
+MCP_CLIENT_SECRET="<actual-client-secret>" \
+claude mcp add \
+  --transport http \
+  --scope user \
+  --client-id "<actual-client-id>" \
+  --client-secret \
+  remoteclaw \
+  "https://<actual-tunnel-url>/mcp"
+
+Then authenticate in Claude Code with: /mcp → Authenticate → remoteclaw
+```
+
+#### For Claude Code (manual JSON)
+
+```
+Add this to ~/.claude.json (or .mcp.json for project-scoped):
 
 {
   "mcpServers": {
     "remoteclaw": {
       "type": "http",
-      "url": "https://<actual-tunnel-url>/mcp"
+      "url": "https://<actual-tunnel-url>/mcp",
+      "oauth": {
+        "clientId": "<actual-client-id>"
+      }
     }
   }
 }
 
-OAuth credentials for the flow:
-- Client ID: <actual-client-id>
-- Client Secret: <actual-client-secret>
+The client secret must be stored separately via the CLI or keychain.
 ```
 
-Replace `<actual-tunnel-url>`, `<actual-client-id>`, and `<actual-client-secret>` with the real values from the setup. The user (or their MCP client) will need the credentials when the OAuth flow prompts for them.
+#### For Claude.ai / other clients
+
+```
+MCP server URL: https://<actual-tunnel-url>/mcp
+
+OAuth credentials for the flow:
+  - Client ID: <actual-client-id>
+  - Client Secret: <actual-client-secret>
+```
+
+Replace `<actual-tunnel-url>`, `<actual-client-id>`, and `<actual-client-secret>` with the real values from the setup.
 
 ### Local access (HTTP)
 
