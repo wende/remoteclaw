@@ -241,10 +241,15 @@ export async function discoverToolsDynamic(opts: {
 
   const allTools = createOpenClawCodingTools({ config });
 
-  return allTools.map((t: any) => ({
-    name: String(t.name ?? ''),
-    description: String(t.description ?? ''),
-    parameters: t.parameters ?? { type: 'object' },
-    execute: typeof t.execute === 'function' ? t.execute : undefined,
-  }));
+  // Filter out tools implemented natively in RemoteClaw (don't capture their execute methods)
+  const nativeSystemTools = new Set(['exec', 'process', 'read', 'canvas']);
+
+  return allTools
+    .filter((t: any) => !nativeSystemTools.has(t.name))
+    .map((t: any) => ({
+      name: String(t.name ?? ''),
+      description: String(t.description ?? ''),
+      parameters: t.parameters ?? { type: 'object' },
+      execute: typeof t.execute === 'function' ? t.execute : undefined,
+    }));
 }
