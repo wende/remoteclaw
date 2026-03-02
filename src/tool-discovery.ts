@@ -17,7 +17,7 @@ export function agentToolsToMcpTools(tools: AgentTool[]): McpTool[] {
   });
 }
 
-const MARKER_FILE = join('src', 'agents', 'openclaw-tools.ts');
+const MARKER_FILE = join('src', 'agents', 'pi-tools.ts');
 
 function hasOpenClawSource(dir: string): boolean {
   return existsSync(join(dir, MARKER_FILE)) || existsSync(join(dir, MARKER_FILE.replace('.ts', '.js')));
@@ -127,11 +127,11 @@ export function findOpenClawDist(): string | null {
  * The bundler (tsdown) exports it with a mangled name; we scan for the chunk
  * that re-exports it and identify the function by calling it with { config: {} }.
  */
-async function importCreateOpenClawToolsFromDist(distDir: string): Promise<((...args: any[]) => any) | null> {
+async function importCreateOpenClawCodingToolsFromDist(distDir: string): Promise<((...args: any[]) => any) | null> {
   const files = readdirSync(distDir).filter(f => f.endsWith('.js'));
   for (const file of files) {
     const content = readFileSync(join(distDir, file), 'utf-8');
-    if (!content.includes('createOpenClawTools')) continue;
+    if (!content.includes('createOpenClawCodingTools')) continue;
 
     let mod: any;
     try {
@@ -211,7 +211,7 @@ export async function discoverToolsDynamic(opts: {
   }
 
   // Dynamic import — works because we're in the gateway process and jiti handles resolution.
-  const modulePath = join(root, 'src', 'agents', 'openclaw-tools.js');
+  const modulePath = join(root, 'src', 'agents', 'pi-tools.js');
   let mod: any;
   try {
     mod = await import(modulePath);
@@ -219,9 +219,9 @@ export async function discoverToolsDynamic(opts: {
     mod = await import(modulePath.replace(/\.js$/, '.ts'));
   }
 
-  const createOpenClawTools = mod.createOpenClawTools ?? mod.default?.createOpenClawTools;
-  if (typeof createOpenClawTools !== 'function') {
-    throw new Error(`createOpenClawTools not found in ${modulePath}`);
+  const createOpenClawCodingTools = mod.createOpenClawCodingTools ?? mod.default?.createOpenClawCodingTools;
+  if (typeof createOpenClawCodingTools !== 'function') {
+    throw new Error(`createOpenClawCodingTools not found in ${modulePath}`);
   }
 
   // Use the runtime's loadConfig if available, otherwise import it from the source tree.
@@ -239,7 +239,7 @@ export async function discoverToolsDynamic(opts: {
     config = configMod.loadConfig();
   }
 
-  const allTools = createOpenClawTools({ config });
+  const allTools = createOpenClawCodingTools({ config });
 
   return allTools.map((t: any) => ({
     name: String(t.name ?? ''),

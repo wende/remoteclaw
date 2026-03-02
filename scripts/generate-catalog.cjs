@@ -17,7 +17,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const openclawRoot = path.resolve(process.argv[2] || path.join(process.env.HOME, 'projects/openclaw'));
-const toolsFile = path.join(openclawRoot, 'src', 'agents', 'openclaw-tools.ts');
+const toolsFile = path.join(openclawRoot, 'src', 'agents', 'pi-tools.ts');
 
 if (!fs.existsSync(toolsFile)) {
   console.error(`Cannot find ${toolsFile}`);
@@ -33,14 +33,14 @@ const jiti = createJiti(__filename, {
 
 try {
   const mod = jiti(toolsFile);
-  const createOpenClawTools = mod.createOpenClawTools || mod.default?.createOpenClawTools;
+  const createOpenClawCodingTools = mod.createOpenClawCodingTools || mod.default?.createOpenClawCodingTools;
 
-  if (typeof createOpenClawTools !== 'function') {
-    console.error('createOpenClawTools not found. Exports:', Object.keys(mod).join(', '));
+  if (typeof createOpenClawCodingTools !== 'function') {
+    console.error('createOpenClawCodingTools not found. Exports:', Object.keys(mod).join(', '));
     process.exit(1);
   }
 
-  const tools = createOpenClawTools({});
+  const tools = createOpenClawCodingTools({});
   const catalog = tools.map((t) => ({
     name: t.name,
     description: t.description || '',
